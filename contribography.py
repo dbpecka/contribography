@@ -11,13 +11,15 @@ Usage:
     ./contribography.py --text "HELLO" --font-height 5 --shade shadow --preview
     ./contribography.py --art helix --preview
     ./contribography.py --text "HI" --name "Your Name" --email you@example.com --push
+    ./contribography.py --art helix --name "Your Name" --email you@example.com --clean --push
 
 Generated commits go into a fresh repo (default ./contribography-commits);
---push force-pushes it to main on the commits repo, replacing any earlier art.
+--clean replaces one left by an earlier run, and --push force-pushes it to main
+on the commits repo, replacing any earlier art.
 
 A pattern file is 7 lines, one per weekday starting with Sunday. Each
-character is one week: ' ' or '.' is empty, '1'-'4' is an intensity level,
-and any other character is level 4 (darkest).
+character is one week: ' ', '.' or '0' is empty, '1'-'4' is an intensity
+level, and any other character is level 4 (darkest).
 
 Commits are written with `git fast-import`, so tens of thousands of commits
 take seconds. Each commit's author/committer date is noon UTC on its day so
@@ -27,6 +29,7 @@ the day can't shift across a timezone boundary.
 import argparse
 import datetime as dt
 import math
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -131,8 +134,14 @@ FONTS = {7: FONT_7, 5: FONT_5}
 
 ROWS = 7
 DEFAULT_REMOTE = "https://github.com/dbpecka/contribography-commits"
-LEVELS = " 1234"
 SHADES = {0: "·", 1: "░", 2: "▒", 3: "▓", 4: "█"}
+
+
+def non_negative(value):
+    n = int(value)
+    if n < 0:
+        raise argparse.ArgumentTypeError(f"must be 0 or more, got {n}")
+    return n
 
 
 def render_text(text, height=7, top=None):
@@ -158,6 +167,10 @@ def render_text(text, height=7, top=None):
 
 def load_pattern(path):
     lines = Path(path).read_text().splitlines()
+    # Tolerate blank lines after Saturday, but not blank Sunday..Saturday rows
+    # going missing.
+    while len(lines) > ROWS and not lines[-1].strip():
+        lines.pop()
     if len(lines) != ROWS:
         sys.exit(f"{path}: expected {ROWS} lines (Sun..Sat), got {len(lines)}")
     width = max(len(l) for l in lines)
@@ -165,7 +178,7 @@ def load_pattern(path):
     for line in lines:
         row = []
         for c in line.ljust(width):
-            row.append(0 if c in " ." else int(c) if c in "1234" else 4)
+            row.append(0 if c in " .0" else int(c) if c in "1234" else 4)
         grid.append(row)
     return grid
 
@@ -176,13 +189,19 @@ SHADE_OFFSETS = {
 }
 
 
+def shade_padding(style):
+    """(left, right) columns that shading adds around the art."""
+    offsets = SHADE_OFFSETS[style]
+    return (int(any(dc < 0 for _, dc in offsets)),
+            int(any(dc > 0 for _, dc in offsets)))
+
+
 def shade(grid, style, level):
     """Fill empty cells next to lit ones with a lighter level. The grid gains
     a column on each side the shading can spill into; rows beyond Sun..Sat
     are clipped."""
     offsets = SHADE_OFFSETS[style]
-    left = 1 if any(dc < 0 for _, dc in offsets) else 0
-    right = 1 if any(dc > 0 for _, dc in offsets) else 0
+    left, right = shade_padding(style)
     out = [[0] * left + row + [0] * right for row in grid]
     for r, row in enumerate(grid):
         for c, v in enumerate(row):
@@ -253,6 +272,8 @@ def place(grid, today, offset):
     width = len(grid[0])
     if offset is None:
         offset = max(0, (count - width) // 2)
+    if offset >= count:
+        sys.exit(f"--offset {offset} is past the last of the {count} full weeks")
     if offset + width > count:
         sys.exit(f"art is {width} columns but only {count - offset} fit "
                  f"({count} full weeks, offset {offset})")
@@ -278,10 +299,22 @@ def preview(today, start, cells):
         print(f"{names[r]} {row}")
 
 
-def generate(cells, out, name, email, per_level):
+def is_generated_repo(path):
+    """True if path looks like a repo this script wrote: nothing but .git and
+    art.log."""
+    return {p.name for p in path.iterdir()} <= {".git", "art.log"} \
+        and (path / ".git").is_dir()
+
+
+def generate(cells, out, name, email, per_level, clean):
     out = Path(out)
     if out.exists() and any(out.iterdir()):
-        sys.exit(f"{out} exists and is not empty")
+        if not clean:
+            sys.exit(f"{out} exists and is not empty (use --clean to replace "
+                     f"a previously generated repo)")
+        if not is_generated_repo(out):
+            sys.exit(f"{out} doesn't look like a generated repo; not deleting it")
+        shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init", "-q", "-b", "main", str(out)], check=True)
 
@@ -324,10 +357,10 @@ def main():
     src.add_argument("--pattern", help="7-line pattern file")
     src.add_argument("--art", choices=sorted(ART),
                      help="draw a built-in illustration across every full week")
-    p.add_argument("--font-height", type=int, choices=sorted(FONTS), default=7,
+    p.add_argument("--font-height", type=int, choices=sorted(FONTS),
                    help="font height in rows for --text: 7 (5x7, ~8 chars) or "
                         "5 (3x5, ~13 chars) (default 7)")
-    p.add_argument("--top", type=int,
+    p.add_argument("--top", type=non_negative,
                    help="rows from Sunday to the top of the text "
                         "(default: vertically centered)")
     p.add_argument("--shade", choices=sorted(SHADE_OFFSETS),
@@ -337,7 +370,7 @@ def main():
                    help="intensity of the shading boxes (default 1, lightest)")
     p.add_argument("--today", type=dt.date.fromisoformat, default=dt.date.today(),
                    help="last day of the graph (default: today)")
-    p.add_argument("--offset", type=int,
+    p.add_argument("--offset", type=non_negative,
                    help="weeks from the first full week to the start of the art "
                         "(default: centered)")
     p.add_argument("--per-level", type=int, default=10,
@@ -347,26 +380,42 @@ def main():
     p.add_argument("--email", help="must be a verified email on your GitHub account")
     p.add_argument("--out", default="contribography-commits",
                    help="directory for the new repo (default ./contribography-commits)")
+    p.add_argument("--clean", action="store_true",
+                   help="delete a previously generated --out repo before "
+                        "writing the new one")
     p.add_argument("--push", nargs="?", const=DEFAULT_REMOTE, metavar="URL",
                    help="force-push the generated history to main on URL "
                         f"(default {DEFAULT_REMOTE})")
     a = p.parse_args()
+    if not a.text and (a.font_height is not None or a.top is not None):
+        p.error("--font-height and --top only apply to --text")
+    for flag, value in (("--name", a.name), ("--email", a.email)):
+        # These go into "author Name <email>" lines of the fast-import stream.
+        if value is not None and (not value.strip() or set(value) & set("<>\n")):
+            p.error(f"{flag} can't be blank or contain '<', '>' or line breaks")
 
     if a.text:
-        grid = render_text(a.text, a.font_height, a.top)
+        grid = render_text(a.text, a.font_height or 7, a.top)
     elif a.art:
-        grid = ART[a.art](full_weeks(a.today)[1] - (a.offset or 0))
+        # Leave room for the columns shading adds so the result still fits.
+        pad = sum(shade_padding(a.shade)) if a.shade else 0
+        width = full_weeks(a.today)[1] - (a.offset or 0) - pad
+        if width <= 0:
+            sys.exit(f"--offset {a.offset} leaves no room for the art")
+        grid = ART[a.art](width)
     else:
         grid = load_pattern(a.pattern)
     if a.shade:
         grid = shade(grid, a.shade, a.shade_level)
     start, cells = place(grid, a.today, a.offset)
     preview(a.today, start, cells)
+    if not cells:
+        sys.exit("nothing to draw: the art has no filled boxes")
     if a.preview:
         return
     if not (a.name and a.email):
         sys.exit("--name and --email are required to generate commits")
-    generate(cells, a.out, a.name, a.email, a.per_level)
+    generate(cells, a.out, a.name, a.email, a.per_level, a.clean)
     if a.push:
         push(a.out, a.push)
 
