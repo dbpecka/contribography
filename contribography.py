@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Paint the GitHub contribution graph by generating backdated commits.
 
-The graph is 7 rows (Sunday..Saturday) by ~53 columns (weeks). The leftmost
-column is the week containing the day one year before "today"; the rightmost
-is the current, partial week.
+The graph is 7 rows (Sunday..Saturday) by 53 or 54 columns (weeks), covering
+one year up to "today". The leftmost and rightmost columns are usually partial
+weeks, so art is laid out on the full weeks in between (51 or 52 of them).
 
 Usage:
     ./contribography.py --text "HELLO" --preview
@@ -215,44 +215,66 @@ def helix(width):
 ART = {"helix": helix}
 
 
+def year_ago(today):
+    """First day of the graph's one-year window."""
+    try:
+        return today.replace(year=today.year - 1)
+    except ValueError:  # Feb 29
+        return today.replace(year=today.year - 1, day=28)
+
+
 def graph_start(today):
-    """Sunday of the week containing today minus one year (leftmost column)."""
-    year_ago = today - dt.timedelta(days=365)
-    return year_ago - dt.timedelta(days=(year_ago.weekday() + 1) % 7)
+    """Sunday of the week containing the day one year ago (leftmost column)."""
+    first = year_ago(today)
+    return first - dt.timedelta(days=(first.weekday() + 1) % 7)
 
 
-def graph_columns(today):
-    return (today - graph_start(today)).days // 7 + 1
+def full_weeks(today):
+    """(first column, column count) of the weeks lying entirely inside the
+    window. The edge columns are usually partial: the leftmost starts mid-week
+    one year ago and the rightmost ends today. Depending on the weekday the
+    graph has 53 or 54 columns, so art is laid out on full weeks only, which
+    GitHub always shows in full whatever its exact window."""
+    start = graph_start(today)
+    # Skip column 0 even when it starts exactly a year ago, in case GitHub's
+    # window excludes that day.
+    first = 1
+    last = (today - start).days // 7
+    if (today - start).days % 7 != 6:  # current week is still partial
+        last -= 1
+    return first, last - first + 1
 
 
 def place(grid, today, offset):
-    """Map grid cells to dates. Returns {date: level}."""
+    """Map grid cells to dates. Returns {date: level}. `offset` counts from
+    the first full week."""
     start = graph_start(today)
-    columns = graph_columns(today)
+    first, count = full_weeks(today)
     width = len(grid[0])
     if offset is None:
-        offset = max(0, (columns - width) // 2)
-    if offset + width > columns:
-        sys.exit(f"art is {width} columns but only {columns - offset} fit "
-                 f"(graph has {columns} columns, offset {offset})")
+        offset = max(0, (count - width) // 2)
+    if offset + width > count:
+        sys.exit(f"art is {width} columns but only {count - offset} fit "
+                 f"({count} full weeks, offset {offset})")
     cells = {}
     for r in range(ROWS):
         for c in range(width):
             if grid[r][c]:
-                day = start + dt.timedelta(weeks=offset + c, days=r)
-                if day > today:
-                    sys.exit(f"cell row {r} col {c} lands on {day}, after today")
-                cells[day] = grid[r][c]
-    return start, columns, cells
+                cells[start + dt.timedelta(weeks=first + offset + c, days=r)] = grid[r][c]
+    return start, cells
 
 
-def preview(start, columns, cells):
+def preview(today, start, cells):
     names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-    print(f"graph: {start} .. {start + dt.timedelta(weeks=columns) - dt.timedelta(days=1)}"
-          f" ({columns} columns)")
+    columns = (today - start).days // 7 + 1
+    print(f"graph: {year_ago(today)} .. {today} ({columns} columns, "
+          f"{full_weeks(today)[1]} full weeks)")
     for r in range(ROWS):
-        row = "".join(SHADES[cells.get(start + dt.timedelta(weeks=c, days=r), 0)]
-                      for c in range(columns))
+        row = ""
+        for c in range(columns):
+            day = start + dt.timedelta(weeks=c, days=r)
+            # Days outside the one-year window aren't drawn by GitHub.
+            row += " " if not year_ago(today) <= day <= today else SHADES[cells.get(day, 0)]
         print(f"{names[r]} {row}")
 
 
@@ -316,7 +338,8 @@ def main():
     p.add_argument("--today", type=dt.date.fromisoformat, default=dt.date.today(),
                    help="last day of the graph (default: today)")
     p.add_argument("--offset", type=int,
-                   help="column to start the art at (default: centered)")
+                   help="weeks from the first full week to the start of the art "
+                        "(default: centered)")
     p.add_argument("--per-level", type=int, default=10,
                    help="commits per intensity level; level 4 = 4x this (default 10)")
     p.add_argument("--preview", action="store_true", help="print the grid and exit")
@@ -332,14 +355,13 @@ def main():
     if a.text:
         grid = render_text(a.text, a.font_height, a.top)
     elif a.art:
-        # Skip the current, partial week so no cell lands after today.
-        grid = ART[a.art](graph_columns(a.today) - 1 - (a.offset or 0))
+        grid = ART[a.art](full_weeks(a.today)[1] - (a.offset or 0))
     else:
         grid = load_pattern(a.pattern)
     if a.shade:
         grid = shade(grid, a.shade, a.shade_level)
-    start, columns, cells = place(grid, a.today, a.offset)
-    preview(start, columns, cells)
+    start, cells = place(grid, a.today, a.offset)
+    preview(a.today, start, cells)
     if a.preview:
         return
     if not (a.name and a.email):
