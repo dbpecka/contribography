@@ -9,6 +9,7 @@ Usage:
     ./contribography.py --text "HELLO" --preview
     ./contribography.py --text "HELLO WORLD" --font-height 5 --preview
     ./contribography.py --text "HELLO" --font-height 5 --shade shadow --preview
+    ./contribography.py --art helix --preview
     ./contribography.py --text "HI" --name "Your Name" --email you@example.com --push
 
 Generated commits go into a fresh repo (default ./contribography-commits);
@@ -25,6 +26,7 @@ the day can't shift across a timezone boundary.
 
 import argparse
 import datetime as dt
+import math
 import subprocess
 import sys
 from pathlib import Path
@@ -193,16 +195,40 @@ def shade(grid, style, level):
     return out
 
 
+def helix(width):
+    """DNA double helix: two dark strands crossing every 8 weeks, joined by
+    light rungs every other week."""
+    period = 16
+    grid = [[0] * width for _ in range(ROWS)]
+    for c in range(width):
+        s = math.sin(2 * math.pi * c / period)
+        a, b = round(3 + 3 * s), round(3 - 3 * s)
+        if c % 2 == 0:
+            for r in range(min(a, b) + 1, max(a, b)):
+                grid[r][c] = 1
+        grid[a][c] = grid[b][c] = 4
+    return grid
+
+
+# Built-in illustrations for --art. Each takes the number of columns to fill
+# and returns a 7-row grid of levels.
+ART = {"helix": helix}
+
+
 def graph_start(today):
     """Sunday of the week containing today minus one year (leftmost column)."""
     year_ago = today - dt.timedelta(days=365)
     return year_ago - dt.timedelta(days=(year_ago.weekday() + 1) % 7)
 
 
+def graph_columns(today):
+    return (today - graph_start(today)).days // 7 + 1
+
+
 def place(grid, today, offset):
     """Map grid cells to dates. Returns {date: level}."""
     start = graph_start(today)
-    columns = (today - start).days // 7 + 1
+    columns = graph_columns(today)
     width = len(grid[0])
     if offset is None:
         offset = max(0, (columns - width) // 2)
@@ -274,6 +300,8 @@ def main():
     src = p.add_mutually_exclusive_group(required=True)
     src.add_argument("--text", help="render this text with a built-in font")
     src.add_argument("--pattern", help="7-line pattern file")
+    src.add_argument("--art", choices=sorted(ART),
+                     help="draw a built-in illustration across every full week")
     p.add_argument("--font-height", type=int, choices=sorted(FONTS), default=7,
                    help="font height in rows for --text: 7 (5x7, ~8 chars) or "
                         "5 (3x5, ~13 chars) (default 7)")
@@ -301,8 +329,13 @@ def main():
                         f"(default {DEFAULT_REMOTE})")
     a = p.parse_args()
 
-    grid = (render_text(a.text, a.font_height, a.top) if a.text
-            else load_pattern(a.pattern))
+    if a.text:
+        grid = render_text(a.text, a.font_height, a.top)
+    elif a.art:
+        # Skip the current, partial week so no cell lands after today.
+        grid = ART[a.art](graph_columns(a.today) - 1 - (a.offset or 0))
+    else:
+        grid = load_pattern(a.pattern)
     if a.shade:
         grid = shade(grid, a.shade, a.shade_level)
     start, columns, cells = place(grid, a.today, a.offset)
