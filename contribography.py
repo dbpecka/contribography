@@ -318,6 +318,9 @@ def generate(cells, out, name, email, per_level, clean):
     out.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init", "-q", "-b", "main", str(out)], check=True)
 
+    # Stamped into every message so each run gets new commit IDs: GitHub may
+    # skip commits it has already counted if the same art is pushed again.
+    run = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     stream = []
     mark = 0
     for day in sorted(cells):
@@ -326,7 +329,7 @@ def generate(cells, out, name, email, per_level, clean):
             ts = int(dt.datetime(day.year, day.month, day.day, 12, 0, n % 60,
                                  tzinfo=dt.timezone.utc).timestamp())
             ident = f"{name} <{email}> {ts} +0000"
-            msg = f"{day} #{n + 1}\n".encode()
+            msg = f"{day} #{n + 1} (run {run})\n".encode()
             content = f"{day} #{n + 1}\n".encode()
             stream.append(b"commit refs/heads/main\n")
             stream.append(f"mark :{mark}\n".encode())
@@ -342,10 +345,22 @@ def generate(cells, out, name, email, per_level, clean):
     print(f"wrote {mark} commits across {len(cells)} days to {out}")
 
 
-def push(out, remote):
-    # Force: each run regenerates the whole history, replacing the old art.
-    subprocess.run(["git", "-C", str(out), "push", "--force", remote,
-                    "main:main"], check=True)
+def push(out, remote, batch):
+    """Push main oldest-first in batches of `batch` commits. GitHub appears to
+    count only about the latest thousand commits of a single push towards the
+    contribution graph, so one big push loses the older weeks."""
+    shas = subprocess.run(["git", "-C", str(out), "rev-list", "--reverse", "main"],
+                          check=True, capture_output=True, text=True).stdout.split()
+    ends = list(range(batch - 1, len(shas), batch))
+    if not ends or ends[-1] != len(shas) - 1:
+        ends.append(len(shas) - 1)
+    for i, end in enumerate(ends):
+        # Only the first push needs force: it replaces the previous art, and
+        # each later batch fast-forwards on top of it.
+        force = ["--force"] if i == 0 else []
+        subprocess.run(["git", "-C", str(out), "push", "-q", *force, remote,
+                        f"{shas[end]}:refs/heads/main"], check=True)
+        print(f"pushed {end + 1}/{len(shas)} commits")
     print(f"pushed to {remote}")
 
 
@@ -386,7 +401,11 @@ def main():
     p.add_argument("--push", nargs="?", const=DEFAULT_REMOTE, metavar="URL",
                    help="force-push the generated history to main on URL "
                         f"(default {DEFAULT_REMOTE})")
+    p.add_argument("--batch", type=non_negative, default=500,
+                   help="commits per push with --push (default 500)")
     a = p.parse_args()
+    if a.batch == 0:
+        p.error("--batch must be at least 1")
     if not a.text and (a.font_height is not None or a.top is not None):
         p.error("--font-height and --top only apply to --text")
     for flag, value in (("--name", a.name), ("--email", a.email)):
@@ -417,7 +436,7 @@ def main():
         sys.exit("--name and --email are required to generate commits")
     generate(cells, a.out, a.name, a.email, a.per_level, a.clean)
     if a.push:
-        push(a.out, a.push)
+        push(a.out, a.push, a.batch)
 
 
 if __name__ == "__main__":
