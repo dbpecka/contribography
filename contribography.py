@@ -16,7 +16,7 @@ Usage:
 
 Generated commits go into a fresh repo (default ./contribography-commits);
 --clean replaces one left by an earlier run, and --push force-pushes it to main
-on the GitHub repo named by --repo, replacing any earlier art.
+on the GitHub repo named by --repo over SSH, replacing any earlier art.
 
 A pattern file is 7 lines, one per weekday starting with Sunday. Each
 character is one week: ' ', '.' or '0' is empty, '1'-'4' is an intensity
@@ -410,7 +410,8 @@ def main():
                    help="force-push the generated history to main on --repo, "
                         "or on URL if given (any git remote, e.g. a local path)")
     p.add_argument("--repo", type=github_repo, metavar="OWNER/NAME",
-                   help=f"GitHub repo for --push (default {DEFAULT_REPO})")
+                   help=f"GitHub repo for --push, pushed over SSH "
+                        f"(default {DEFAULT_REPO})")
     p.add_argument("--batch", type=non_negative, default=500,
                    help="commits per push with --push (default 500)")
     a = p.parse_args()
@@ -449,7 +450,7 @@ def main():
     generate(cells, a.out, a.name, a.email, a.per_level, a.clean)
     if a.push:
         remote = (a.push if isinstance(a.push, str)
-                  else f"https://github.com/{a.repo or DEFAULT_REPO}")
+                  else f"git@github.com:{a.repo or DEFAULT_REPO}.git")
         push(a.out, remote, a.batch)
 
 
