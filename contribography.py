@@ -12,10 +12,11 @@ Usage:
     ./contribography.py --art helix --preview
     ./contribography.py --text "HI" --name "Your Name" --email you@example.com --push
     ./contribography.py --art helix --name "Your Name" --email you@example.com --clean --push
+    ./contribography.py --art helix --name "Your Name" --email you@example.com --push --repo you/art
 
 Generated commits go into a fresh repo (default ./contribography-commits);
 --clean replaces one left by an earlier run, and --push force-pushes it to main
-on the commits repo, replacing any earlier art.
+on the GitHub repo named by --repo, replacing any earlier art.
 
 A pattern file is 7 lines, one per weekday starting with Sunday. Each
 character is one week: ' ', '.' or '0' is empty, '1'-'4' is an intensity
@@ -29,6 +30,7 @@ the day can't shift across a timezone boundary.
 import argparse
 import datetime as dt
 import math
+import re
 import shutil
 import subprocess
 import sys
@@ -133,7 +135,7 @@ FONT_5 = {
 FONTS = {7: FONT_7, 5: FONT_5}
 
 ROWS = 7
-DEFAULT_REMOTE = "https://github.com/dbpecka/contribography-commits"
+DEFAULT_REPO = "dbpecka/contribography-commits"
 SHADES = {0: "·", 1: "░", 2: "▒", 3: "▓", 4: "█"}
 
 
@@ -142,6 +144,12 @@ def non_negative(value):
     if n < 0:
         raise argparse.ArgumentTypeError(f"must be 0 or more, got {n}")
     return n
+
+
+def github_repo(value):
+    if not re.fullmatch(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+", value):
+        raise argparse.ArgumentTypeError(f"expected OWNER/NAME, got {value!r}")
+    return value
 
 
 def render_text(text, height=7, top=None):
@@ -398,12 +406,16 @@ def main():
     p.add_argument("--clean", action="store_true",
                    help="delete a previously generated --out repo before "
                         "writing the new one")
-    p.add_argument("--push", nargs="?", const=DEFAULT_REMOTE, metavar="URL",
-                   help="force-push the generated history to main on URL "
-                        f"(default {DEFAULT_REMOTE})")
+    p.add_argument("--push", nargs="?", const=True, metavar="URL",
+                   help="force-push the generated history to main on --repo, "
+                        "or on URL if given (any git remote, e.g. a local path)")
+    p.add_argument("--repo", type=github_repo, metavar="OWNER/NAME",
+                   help=f"GitHub repo for --push (default {DEFAULT_REPO})")
     p.add_argument("--batch", type=non_negative, default=500,
                    help="commits per push with --push (default 500)")
     a = p.parse_args()
+    if a.repo and isinstance(a.push, str):
+        p.error("give --repo or a --push URL, not both")
     if a.batch == 0:
         p.error("--batch must be at least 1")
     if not a.text and (a.font_height is not None or a.top is not None):
@@ -436,7 +448,9 @@ def main():
         sys.exit("--name and --email are required to generate commits")
     generate(cells, a.out, a.name, a.email, a.per_level, a.clean)
     if a.push:
-        push(a.out, a.push, a.batch)
+        remote = (a.push if isinstance(a.push, str)
+                  else f"https://github.com/{a.repo or DEFAULT_REPO}")
+        push(a.out, remote, a.batch)
 
 
 if __name__ == "__main__":
