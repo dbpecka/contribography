@@ -237,9 +237,65 @@ def helix(width):
     return grid
 
 
+INVADER = [
+    "  #     #  ",
+    "   #   #   ",
+    "  #######  ",
+    " ## ### ## ",
+    "###########",
+    "# ####### #",
+    "# #     # #",
+]
+
+
+def invaders(width):
+    """A row of space invaders, alternating between the darkest two shades."""
+    size, gap = len(INVADER[0]), 2
+    count = (width + gap) // (size + gap)
+    if count == 0:
+        sys.exit(f"invaders need at least {size} weeks, only {width} available")
+    grid = [[0] * width for _ in range(ROWS)]
+    left = (width - (count * (size + gap) - gap)) // 2
+    for i in range(count):
+        x = left + i * (size + gap)
+        for r, line in enumerate(INVADER):
+            for c, ch in enumerate(line):
+                if ch == "#":
+                    grid[r][x + c] = 4 if i % 2 == 0 else 3
+    return grid
+
+
+# Rows lit in each column of one heartbeat; unlisted columns sit on the
+# baseline (Wednesday). P wave, then the QRS spike, then the T wave.
+BEAT = {3: [2], 6: [0, 1, 2], 7: [4, 5, 6], 11: [2], 12: [2]}
+BEAT_LENGTH = 17
+
+
+def heartbeat(width):
+    """An ECG trace along Wednesday with a spike every 17 weeks."""
+    grid = [[0] * width for _ in range(ROWS)]
+    for c in range(width):
+        for r in BEAT.get(c % BEAT_LENGTH, [3]):
+            grid[r][c] = 4
+    return grid
+
+
+def waves(width):
+    """Rolling swells, darkest at the bottom and lightening towards each
+    crest. Fills much of the grid, so it needs many commits."""
+    period = 17
+    grid = [[0] * width for _ in range(ROWS)]
+    for c in range(width):
+        crest = round(3 - 2.5 * math.sin(2 * math.pi * c / period))
+        for r in range(crest, ROWS):
+            grid[r][c] = min(4, 1 + r - crest)
+    return grid
+
+
 # Built-in illustrations for --art. Each takes the number of columns to fill
 # and returns a 7-row grid of levels.
-ART = {"helix": helix}
+ART = {"helix": helix, "invaders": invaders, "heartbeat": heartbeat,
+       "waves": waves}
 
 
 def year_ago(today):

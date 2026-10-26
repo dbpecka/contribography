@@ -53,9 +53,22 @@ Pick exactly one source:
 | --- | --- |
 | `--text "HELLO"` | Text in a built-in font. `--font-height 7` (5×7, about 8 characters, the default) or `--font-height 5` (3×5, about 13 characters). `--top N` moves shorter text up or down. |
 | `--pattern art.txt` | A pattern you sketch yourself (format below). |
-| `--art helix` | A built-in illustration that fills the whole year. `helix` is a DNA double helix. |
+| `--art NAME` | A built-in illustration that fills the whole year (see below). |
 
 Fonts cover A–Z, 0–9, `! ? - . < >`, space and `♥`.
+
+### Built-in art
+
+| Name | Picture | Commits at `--per-level 1` / `10` |
+| --- | --- | --- |
+| `helix` | DNA double helix: two strands crossing every 8 weeks, joined by light rungs | ~450 / ~4,500 |
+| `invaders` | A row of space invaders in alternating shades | ~590 / ~5,900 |
+| `heartbeat` | An ECG trace along Wednesday with a spike every 17 weeks | ~250 / ~2,500 |
+| `waves` | Rolling swells shaded from dark troughs to light crests | ~530 / ~5,300 |
+
+Counts are for a typical year and vary a little with the date. GitHub has
+dropped weeks from pushes of a few thousand commits, so prefer
+`--per-level 1` or `2` unless your real activity is heavy.
 
 ### Pattern files
 
