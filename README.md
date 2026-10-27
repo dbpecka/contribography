@@ -107,7 +107,7 @@ shading; the 7-row font fills the whole height, so shading gets clipped.
 | `--out DIR` | `./contribography-commits` | Where to write the generated repo. |
 | `--clean` | | Delete the repo from a previous run first. Only deletes a folder holding nothing but `.git` and `art.log`. |
 | `--push [URL]` | | Force-push to `--repo`, or to any git remote given as `URL`. |
-| `--repo OWNER/NAME` | `dbpecka/contribography-commits` | GitHub repo to push to, over SSH. |
+| `--repo OWNER/NAME` | | GitHub repo to push to, over SSH. Required with `--push` unless you give it a URL. |
 | `--batch N` | 500 | Commits per push. |
 
 Run `./contribography.py --help` for the full list.

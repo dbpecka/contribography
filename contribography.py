@@ -10,9 +10,8 @@ Usage:
     ./contribography.py --text "HELLO WORLD" --font-height 5 --preview
     ./contribography.py --text "HELLO" --font-height 5 --shade shadow --preview
     ./contribography.py --art helix --preview
-    ./contribography.py --text "HI" --name "Your Name" --email you@example.com --push
-    ./contribography.py --art helix --name "Your Name" --email you@example.com --clean --push
-    ./contribography.py --art helix --name "Your Name" --email you@example.com --push --repo you/art
+    ./contribography.py --text "HI" --name "Your Name" --email you@example.com --push --repo you/art
+    ./contribography.py --art helix --name "Your Name" --email you@example.com --clean --push --repo you/art
 
 Generated commits go into a fresh repo (default ./contribography-commits);
 --clean replaces one left by an earlier run, and --push force-pushes it to main
@@ -135,7 +134,6 @@ FONT_5 = {
 FONTS = {7: FONT_7, 5: FONT_5}
 
 ROWS = 7
-DEFAULT_REPO = "dbpecka/contribography-commits"
 SHADES = {0: "·", 1: "░", 2: "▒", 3: "▓", 4: "█"}
 
 
@@ -466,13 +464,17 @@ def main():
                    help="force-push the generated history to main on --repo, "
                         "or on URL if given (any git remote, e.g. a local path)")
     p.add_argument("--repo", type=github_repo, metavar="OWNER/NAME",
-                   help=f"GitHub repo for --push, pushed over SSH "
-                        f"(default {DEFAULT_REPO})")
+                   help="GitHub repo for --push, pushed over SSH; required "
+                        "unless --push is given a URL")
     p.add_argument("--batch", type=non_negative, default=500,
                    help="commits per push with --push (default 500)")
     a = p.parse_args()
     if a.repo and isinstance(a.push, str):
         p.error("give --repo or a --push URL, not both")
+    if a.push is True and not a.repo:
+        p.error("--push needs --repo OWNER/NAME (or a URL: --push URL)")
+    if a.repo and not a.push:
+        p.error("--repo only applies with --push")
     if a.batch == 0:
         p.error("--batch must be at least 1")
     if not a.text and (a.font_height is not None or a.top is not None):
@@ -506,7 +508,7 @@ def main():
     generate(cells, a.out, a.name, a.email, a.per_level, a.clean)
     if a.push:
         remote = (a.push if isinstance(a.push, str)
-                  else f"git@github.com:{a.repo or DEFAULT_REPO}.git")
+                  else f"git@github.com:{a.repo}.git")
         push(a.out, remote, a.batch)
 
 
